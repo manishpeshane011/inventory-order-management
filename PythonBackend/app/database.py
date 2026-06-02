@@ -4,15 +4,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# ❗ HARD STOP if wrong DB is loaded
-if not DATABASE_URL:
-    raise Exception("DATABASE_URL not found")
-
 print("DB URL LOADED:", DATABASE_URL)
 
-# ❗ Safety check (IMPORTANT)
-if "mysql" in DATABASE_URL:
-    raise Exception("MySQL detected. You are still using old config!")
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL missing")
 
 engine = create_engine(
     DATABASE_URL,
@@ -21,3 +16,10 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
