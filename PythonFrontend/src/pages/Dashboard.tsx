@@ -1,338 +1,356 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { productAPI, customerAPI, orderAPI, inventoryAPI } from "../services/api";
-import { Product, Customer, Order, InventoryItem } from "../types";
+import React, { useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Package,
   Users,
   ShoppingCart,
-  TrendingUp,
-  AlertCircle,
-  Clock,
+  Layers,
   ArrowUpRight,
-  ServerCrash,
-} from "lucide-react";
+  AlertTriangle,
+  DollarSign,
+  TrendingUp,
+} from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
+import useProducts from '../hooks/useProducts';
+import useCustomers from '../hooks/useCustomers';
+import useOrders from '../hooks/useOrders';
+import useInventory from '../hooks/useInventory';
 
-export default function Dashboard() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+export const Dashboard: React.FC = () => {
+  const { products, fetchProducts, loading: loadingProds } = useProducts();
+  const { customers, fetchCustomers, loading: loadingCusts } = useCustomers();
+  const { orders, fetchOrders, loading: loadingOrds } = useOrders();
+  const { inventory, fetchInventory, loading: loadingInv } = useInventory();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [backendError, setBackendError] = useState<string | null>(null);
-
-  const fetchDashboardData = async () => {
-    setIsLoading(true);
-    setBackendError(null);
-    try {
-      // Run parallel fetches
-      const [prods, custs, ords, inv] = await Promise.all([
-        productAPI.getProducts().catch((err) => {
-          console.error("Products error:", err);
-          return [] as Product[];
-        }),
-        customerAPI.getCustomers().catch((err) => {
-          console.error("Customers error:", err);
-          return [] as Customer[];
-        }),
-        orderAPI.getOrders().catch((err) => {
-          console.error("Orders error:", err);
-          return [] as Order[];
-        }),
-        inventoryAPI.getInventory().catch((err) => {
-          console.error("Inventory error:", err);
-          return [] as InventoryItem[];
-        }),
-      ]);
-
-      const normalizedInventory = Array.isArray(inv) ? inv : [];
-
-      if (!Array.isArray(inv)) {
-        console.warn("Dashboard: inventory API returned unexpected payload shape, defaulting to empty inventory list.", inv);
-      }
-
-      console.debug("Dashboard fetchDashboardData result", {
-        products: prods,
-        customers: custs,
-        orders: ords,
-        inventory: normalizedInventory,
-      });
-
-      setProducts(prods);
-      setCustomers(custs);
-      setOrders(ords);
-      setInventory(normalizedInventory);
-    } catch (err: any) {
-      console.error(err);
-      setBackendError(
-        "Could not load dashboard metrics from backend APIs. Please make sure the backend server (FastAPI/Express) is running locally at http://127.0.0.1:8000."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Load everything on initial render
   useEffect(() => {
-    fetchDashboardData();
+    fetchProducts();
+    fetchCustomers();
+    fetchOrders();
+    fetchInventory();
   }, []);
 
-  // Compute metrics fallback (in case inventory or product fetches fails but others succeeded)
-  const totalProducts = Array.isArray(products) ? products.length : 0;
-  const totalCustomers = Array.isArray(customers) ? customers.length : 0;
-  const totalOrders = Array.isArray(orders) ? orders.length : 0;
+  const totalProducts = (products || []).length;
+  const totalCustomers = (customers || []).length;
+  const totalOrders = (orders || []).length;
+  const totalInventoryCount = (inventory || []).reduce((acc, curr) => acc + curr.stock_quantity, 0);
 
-  // Let's count inventory items with stock_quantity > 0 as "Available Items" per user requirements
-  const availableInventoryItems = Array.isArray(inventory)
-    ? inventory.reduce(
-        (total, item) => total + (item?.stock_quantity > 0 ? 1 : 0),
-        0
-      )
-    : 0;
+  // Deriving visual stats and financial valuations
+  const totalValuation = (products || []).reduce((acc, p) => acc + (p.price * p.stock_quantity), 0);
+  const formattedValuation = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(totalValuation);
 
-  // Total investment volume
-  const totalStockSum = Array.isArray(products)
-    ? products.reduce(
-        (total, p) => total + (typeof p?.stock_quantity === "number" ? p.stock_quantity : 0),
-        0
-      )
-    : 0;
-  const totalInventoryValuation = Array.isArray(products)
-    ? products.reduce(
-        (total, p) =>
-          total +
-          (typeof p?.stock_quantity === "number" ? p.stock_quantity : 0) *
-          (typeof p?.price === "number" ? p.price : 0),
-        0
-      )
-    : 0;
+  // Get Low Stock Items list
+  const lowStockItems = (inventory || []).filter(item => item.stock_quantity < 5);
+
+  // Prepare chart data for Inventory Levels
+  // Pull top 6 items to make the chart look pristine
+  const inventoryChartData = (inventory || []).slice(0, 6).map(item => ({
+    name: item.name.length > 15 ? `${item.name.substring(0, 15)}...` : item.name,
+    Quantity: item.stock_quantity,
+  }));
+
+  // Prepare order data for visual charts
+  const ordersChartData = (orders || []).map((o, idx) => ({
+    order: `Order #${o.id}`,
+    Value: o.total_amount,
+  })).reverse();
+
+  const loading = loadingProds || loadingCusts || loadingOrds || loadingInv;
+
+  // Render Skeletons during initial state fetches
+  if (loading && totalProducts === 0) {
+    return (
+      <div className="space-y-8 animate-pulse">
+        {/* Header Skeleton */}
+        <div>
+          <div className="h-7 w-48 bg-slate-200 rounded-md"></div>
+          <div className="h-4 w-64 bg-slate-100 rounded-md mt-2"></div>
+        </div>
+        {/* Stat Cards Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white p-6 rounded-2xl h-32 border border-slate-100"></div>
+          ))}
+        </div>
+        {/* Visual Charts Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-white rounded-2xl h-80 border border-slate-100"></div>
+          <div className="bg-white rounded-2xl h-80 border border-slate-100"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="container py-4" id="dashboard-root">
-      {/* Header and Sync */}
-      <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4 border-bottom pb-3">
-        <div>
-          <h2 className="fw-bold text-dark font-sans tracking-tight mb-1">
-            👋 Welcome Back, Administrator
-          </h2>
-          <p className="text-secondary mb-0">
-            Real-time status overview of your store inventory, client accounts, and purchase sales.
-          </p>
+    <div className="space-y-8">
+      {/* Dynamic Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Enterprise Overview</h2>
+        <p className="text-sm text-slate-500 mt-1">
+          Monitor your real-time performance indicators and inventory health.
+        </p>
+      </div>
+
+      {/* KPI Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        
+        {/* Total Products Card */}
+        <div id="stat-card-products" className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+          <div className="space-y-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Products</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-800">{totalProducts}</span>
+              <span className="text-[10px] text-emerald-600 font-semibold flex items-center bg-emerald-50 px-1.5 py-0.5 rounded-md">
+                +12%
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium">Distinct catalog items</p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+            <Package className="w-6 h-6" />
+          </div>
         </div>
-        <div>
-          <button
-            onClick={fetchDashboardData}
-            className="btn btn-outline-dark d-flex align-items-center gap-2"
-            disabled={isLoading}
-            id="btn-refresh-dashboard"
-          >
-            {isLoading ? (
-              <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+
+        {/* Total Customers Card */}
+        <div id="stat-card-customers" className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+          <div className="space-y-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Customers</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-800">{totalCustomers}</span>
+              <span className="text-[10px] text-emerald-600 font-semibold flex items-center bg-emerald-50 px-1.5 py-0.5 rounded-md">
+                +4%
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium">Registered business partners</p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-sky-50 flex items-center justify-center text-sky-600 group-hover:bg-sky-600 group-hover:text-white transition-all duration-300">
+            <Users className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Total Orders Card */}
+        <div id="stat-card-orders" className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+          <div className="space-y-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Orders</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-800">{totalOrders}</span>
+              <span className="text-[10px] text-indigo-600 font-semibold flex items-center bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                Active
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium">Customer purchase orders</p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300">
+            <ShoppingCart className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Inventory Items Count Card */}
+        <div id="stat-card-inventory" className="bg-white p-6 rounded-2xl border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 flex items-center justify-between group">
+          <div className="space-y-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Inventory Count</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-800">{totalInventoryCount}</span>
+              <span className="text-[10px] text-amber-600 font-semibold flex items-center bg-amber-50 px-1.5 py-0.5 rounded-md">
+                In Stock
+              </span>
+            </div>
+            <div className="flex items-center gap-1 font-mono text-[10px] text-indigo-600 mt-0.5">
+              <span>Valued at</span>
+              <span className="font-semibold">{formattedValuation}</span>
+            </div>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-all duration-300">
+            <Layers className="w-6 h-6" />
+          </div>
+        </div>
+      </div>
+
+      {/* Visual Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        
+        {/* Left Side: Stock Level Chart */}
+        <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800">Critical Stock Health</h3>
+              <p className="text-xs text-slate-400">Total volume remaining per catalog product</p>
+            </div>
+            <Link to="/inventory" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+              Analyze Inventory
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="h-64" style={{ minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={inventoryChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                <XAxis dataKey="name" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#0F172A', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px' }}
+                  labelStyle={{ fontWeight: 'bold' }}
+                />
+                <Bar dataKey="Quantity" fill="#6366F1" radius={[4, 4, 0, 0]} barSize={34} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Right Side: Order Value Area Chart */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800">Order Revenue Flow</h3>
+              <p className="text-xs text-slate-400">Volume distribution of historic placements</p>
+            </div>
+            <Link to="/orders" className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+              All Orders
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="h-64" style={{ minWidth: 0 }}>
+            {ordersChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={ordersChartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                  <XAxis dataKey="order" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0F172A', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px' }}
+                  />
+                  <Area type="monotone" dataKey="Value" stroke="#10B981" fillOpacity={0.12} fill="url(#colorValue)" strokeWidth={2} />
+                  <defs>
+                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                </AreaChart>
+              </ResponsiveContainer>
             ) : (
-              "🔄 Sync Feed"
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs">
+                <span>No order data available</span>
+              </div>
             )}
-          </button>
+          </div>
         </div>
+
       </div>
 
-      {backendError && (
-        <div className="alert alert-warning mb-4 shadow-sm border-0 d-flex flex-column flex-md-row align-items-md-center gap-3 p-4" role="alert" id="dashboard-api-warning">
-          <ServerCrash size={36} className="text-warning flex-shrink-0" />
+      {/* Low Stock Alerts & Recent Orders */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        
+        {/* Left Side: Shortage Alerts */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between">
           <div>
-            <h6 className="fw-bold mb-1">API Backend Unreachable (http://127.0.0.1:8000)</h6>
-            <p className="mb-0 small text-secondary">
-              The application couldn't connect to your local server. To resolve this, run your Inventory & Order backend app on port 8000 with CORS enabled.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* METRIC CARDS */}
-      <div className="row g-3 mb-4" id="metric-cards-container">
-        {/* TOTAL PRODUCTS */}
-        <div className="col-12 col-sm-6 col-lg-3">
-          <div className="card shadow-sm border-0 h-100 bg-white">
-            <div className="card-body d-flex align-items-center gap-3 p-4">
-              <div className="bg-primary-subtle p-3 rounded-circle text-primary">
-                <Package size={28} />
-              </div>
-              <div>
-                <span className="text-uppercase text-secondary font-monospace tracking-wider small d-block">
-                  Total Products
-                </span>
-                <span className="fs-3 fw-bold text-dark font-monospace">
-                  {isLoading ? "..." : totalProducts}
-                </span>
-              </div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                Shortage Alerts (Stock &lt; 5)
+              </h3>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100">
+                {lowStockItems.length} Warnings
+              </span>
             </div>
+            
+            {lowStockItems.length > 0 ? (
+              <div className="divide-y divide-slate-50 max-h-56 overflow-y-auto pr-1">
+                {lowStockItems.map((item, idx) => (
+                  <div key={idx} className="py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">{item.name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">Prod ID: #{item.product_id}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className={`inline-flex items-center justify-center text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        item.stock_quantity === 0 
+                          ? 'bg-rose-100 text-rose-800' 
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {item.stock_quantity === 0 ? 'Out of Stock' : `${item.stock_quantity} Left`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-xs font-medium text-slate-400">All inventory items are healthy!</p>
+              </div>
+            )}
           </div>
-        </div>
 
-        {/* TOTAL CUSTOMERS */}
-        <div className="col-12 col-sm-6 col-lg-3">
-          <div className="card shadow-sm border-0 h-100 bg-white">
-            <div className="card-body d-flex align-items-center gap-3 p-4">
-              <div className="bg-success-subtle p-3 rounded-circle text-success">
-                <Users size={28} />
-              </div>
-              <div>
-                <span className="text-uppercase text-secondary font-monospace tracking-wider small d-block">
-                  Total Customers
-                </span>
-                <span className="fs-3 fw-bold text-dark font-monospace">
-                  {isLoading ? "..." : totalCustomers}
-                </span>
-              </div>
-            </div>
-          </div>
+          <Link
+            to="/inventory"
+            className="w-full text-center mt-4 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 py-2.5 rounded-xl transition-all border border-slate-100 cursor-pointer"
+          >
+            Manage Inventory
+          </Link>
         </div>
 
-        {/* TOTAL ORDERS */}
-        <div className="col-12 col-sm-6 col-lg-3">
-          <div className="card shadow-sm border-0 h-100 bg-white">
-            <div className="card-body d-flex align-items-center gap-3 p-4">
-              <div className="bg-info-subtle p-3 rounded-circle text-info">
-                <ShoppingCart size={28} />
-              </div>
-              <div>
-                <span className="text-uppercase text-secondary font-monospace tracking-wider small d-block">
-                  Total Orders
-                </span>
-                <span className="fs-3 fw-bold text-dark font-monospace">
-                  {isLoading ? "..." : totalOrders}
-                </span>
-              </div>
-            </div>
+        {/* Right Side: Recent Orders Summary list */}
+        <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-800">Latest Shipments & Orders</h3>
+            <span className="text-xs text-slate-400">Showing last 4 logs</span>
           </div>
+
+          {(orders || []).length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-50 text-slate-400 font-semibold tracking-wider pb-2">
+                    <th className="pb-3 pt-0">Order ID</th>
+                    <th className="pb-3 pt-0">Purchaser</th>
+                    <th className="pb-3 pt-0">Items</th>
+                    <th className="pb-3 pt-0 text-right">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50/50">
+                  {(orders || []).slice(0, 4).map((order) => (
+                    <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-2.5 font-mono font-medium text-slate-600">#{order.id}</td>
+                      <td className="py-2.5 font-medium text-slate-800">{order.customer_name || 'Business Partner'}</td>
+                      <td className="py-2.5 text-slate-500">
+                        {(order.items || []).map(it => `${it.name || 'Product'} (x${it.quantity})`).join(', ')}
+                      </td>
+                      <td className="py-2.5 text-right font-semibold text-slate-800">
+                        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(order.total_amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-10">
+              <p className="text-xs font-medium text-slate-400">No orders logged.</p>
+              <Link to="/orders" className="text-indigo-600 font-semibold text-xs mt-2 inline-block cursor-pointer">Place an order</Link>
+            </div>
+          )}
         </div>
 
-        {/* AVAILABLE INVENTORY ITEMS */}
-        <div className="col-12 col-sm-6 col-lg-3">
-          <div className="card shadow-sm border-0 h-100 bg-white">
-            <div className="card-body d-flex align-items-center gap-3 p-4">
-              <div className="bg-warning-subtle p-3 rounded-circle text-warning">
-                <TrendingUp size={28} />
-              </div>
-              <div>
-                <span className="text-uppercase text-secondary font-monospace tracking-wider small d-block">
-                  Available In Stock
-                </span>
-                <span className="fs-3 fw-bold text-dark font-monospace">
-                  {isLoading ? "..." : availableInventoryItems} <span className="text-muted fs-6 font-sans">items</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
-
-      {isLoading ? (
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading Metrics...</span>
-          </div>
-          <p className="text-muted mt-3">Compiling reports...</p>
-        </div>
-      ) : (
-        <div className="row g-4 mb-4">
-          {/* Recent Orders Overview */}
-          <div className="col-lg-8">
-            <div className="card shadow-sm border-0 h-100">
-              <div className="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between">
-                <h5 className="card-title mb-0 fw-bold d-flex align-items-center gap-2">
-                  <Clock size={18} className="text-primary" />
-                  <span>Recent Sales Activity</span>
-                </h5>
-                <Link to="/orders" className="btn btn-sm btn-link text-decoration-none d-flex align-items-center gap-1 font-sans fw-semibold">
-                  <span>View All Orders</span>
-                  <ArrowUpRight size={14} />
-                </Link>
-              </div>
-              <div className="card-body p-0">
-                {orders.length === 0 ? (
-                  <div className="text-center py-5">
-                    <p className="text-secondary mb-2 small">No active transaction records on record.</p>
-                    <Link to="/orders" className="btn btn-sm btn-primary">
-                      Place First Order
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="table-responsive">
-                    <table className="table table-hover align-middle mb-0">
-                      <thead className="table-light text-xs text-uppercase font-sans font-medium text-secondary">
-                        <tr>
-                          <th className="p-3">Order ID</th>
-                          <th className="p-3">Customer ID</th>
-                          <th className="p-3">Created Date</th>
-                          <th className="p-3 text-end">Total Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {orders.slice(-5).reverse().map((order) => (
-                          <tr key={order.id}>
-                            <td className="p-3 font-monospace fw-semibold text-primary">
-                              #{order.id}
-                            </td>
-                            <td className="p-3 font-monospace text-secondary">
-                              #{order.customer_id}
-                            </td>
-                            <td className="p-3 text-secondary small">
-                              {order.created_date ? new Date(order.created_date).toLocaleDateString() : "2026-06-01"}
-                            </td>
-                            <td className="p-3 text-end font-monospace fw-bold text-dark">
-                              ${(order.total_amount || 0).toFixed(2)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Valuation Stats */}
-          <div className="col-lg-4">
-            <div className="card shadow-sm border-0 h-100 bg-white">
-              <div className="card-header bg-white py-3 border-bottom">
-                <h5 className="card-title mb-0 fw-bold">📈 Stock Insights</h5>
-              </div>
-              <div className="card-body d-flex flex-column justify-content-between p-4">
-                <div className="mb-4">
-                  <span className="text-muted small d-block mb-1">Stock Items Total Volume</span>
-                  <div className="d-flex align-items-baseline gap-2">
-                    <span className="fs-2 fw-bold font-monospace text-dark">{totalStockSum}</span>
-                    <span className="text-secondary small">units across all catalogues</span>
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <span className="text-muted small d-block mb-1">Financial Valuation</span>
-                  <div className="d-flex align-items-baseline gap-2">
-                    <span className="fs-2 fw-bold font-monospace text-success">${totalInventoryValuation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    <span className="text-secondary small">potential proceeds</span>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-top">
-                  <p className="small text-secondary mb-3">
-                    Running low on items? Quick-access the products catalogue to view items requiring immediate replenishment.
-                  </p>
-                  <Link to="/inventory" className="btn btn-outline-primary w-full d-block text-center py-2">
-                    Open Stock Control
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
-}
+};
+
+export default Dashboard;

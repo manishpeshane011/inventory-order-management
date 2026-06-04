@@ -4,7 +4,7 @@
  */
 
 export interface Product {
-  id?: number;
+  id: number;
   name: string;
   description: string;
   sku: string;
@@ -13,7 +13,7 @@ export interface Product {
 }
 
 export interface Customer {
-  id?: number;
+  id: number;
   name: string;
   email: string;
   phone: string;
@@ -23,23 +23,22 @@ export interface Customer {
 export interface OrderItem {
   product_id: number;
   quantity: number;
-  // UI helpers
-  product_name?: string;
+  name?: string;
   price?: number;
 }
 
 export interface Order {
-  id?: number;
+  id: number;
   customer_id: number;
-  customer_name?: string;
+  customer_name?: string; // Cache or derived
   items: OrderItem[];
-  total_amount?: number;
-  status?: string;
-  created_date?: string;
+  total_amount: number;
+  status: string; // "PLACED"
+  order_date?: string;
 }
 
 export interface InventoryItem {
   product_id: number;
-  product_name: string;
+  name: string;
   stock_quantity: number;
 }

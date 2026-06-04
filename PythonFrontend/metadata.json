@@ -1,6 +1,6 @@
 {
-  "name": "Inventory & Order Management System",
-  "description": "A comprehensive React.js frontend dashboard to manage products, customers, orders, and real-time inventory levels integrated with a REST API backend.",
+  "name": "Inventory & Order Management",
+  "description": "A professional SaaS-style dashboard for real-time inventory tracking, customer relationships, and order processing.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

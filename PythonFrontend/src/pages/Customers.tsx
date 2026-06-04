@@ -1,290 +1,525 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import {
+  Plus,
+  Search,
+  Edit2,
+  Trash2,
+  X,
+  Users,
+  AlertCircle,
+  Loader2,
+  Mail,
+  Phone,
+  MapPin,
+  FileSpreadsheet,
+} from 'lucide-react';
+import useCustomers from '../hooks/useCustomers';
+import { Customer } from '../types';
 
-import { useState, useEffect } from "react";
-import { customerAPI } from "../services/api";
-import { Customer } from "../types";
-import CustomerForm from "../components/CustomerForm";
-import { Search, Edit, Trash, AlertCircle, Users, RefreshCw, X, Mail } from "lucide-react";
+interface CustomerFormInput {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+}
 
-export default function Customers() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [searchEmail, setSearchEmail] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [submitLoading, setSubmitLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+export const Customers: React.FC = () => {
+  const {
+    customers,
+    loading,
+    fetchCustomers,
+    createCustomer,
+    updateCustomer,
+    deleteCustomer,
+  } = useCustomers();
 
-  // Edit / Delete tracking states
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+  const [searchEmail, setSearchEmail] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
 
-  const fetchCustomers = async (emailQuery = "") => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const data = await customerAPI.getCustomers(emailQuery);
-      setCustomers(data);
-    } catch (err: any) {
-      console.error(err);
-      setErrorMessage(
-        "Failed to load customers from API backend. Please ensure the backend server is running and accessible."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Modals state
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
-  // Debounced effect for email search block
+  // Selected for focus or action
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  // Forms setup
+  const {
+    register: registerAdd,
+    handleSubmit: handleSubmitAdd,
+    reset: resetAdd,
+    formState: { errors: errorsAdd, isSubmitting: isSubmittingAdd },
+  } = useForm<CustomerFormInput>();
+
+  const {
+    register: registerEdit,
+    handleSubmit: handleSubmitEdit,
+    reset: resetEdit,
+    formState: { errors: errorsEdit, isSubmitting: isSubmittingEdit },
+  } = useForm<CustomerFormInput>();
+
+  // Fetch when search variable alters
   useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      fetchCustomers(searchEmail.trim());
-    }, 400);
-
-    return () => clearTimeout(delayDebounceFn);
+    fetchCustomers(searchEmail);
   }, [searchEmail]);
 
-  const handleCreateOrUpdate = async (customerData: Customer) => {
-    setSubmitLoading(true);
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    try {
-      if (customerData.id !== undefined) {
-        // Update Action
-        await customerAPI.updateCustomer(customerData.id, customerData);
-        setSuccessMessage(`Customer "${customerData.name}" updated successfully!`);
-        setEditingCustomer(null);
-      } else {
-        // Create Action
-        await customerAPI.createCustomer(customerData);
-        setSuccessMessage(`Customer "${customerData.name}" created successfully!`);
-      }
-      fetchCustomers(searchEmail);
-    } catch (err: any) {
-      console.error(err);
-      const apiErr = err.response?.data?.detail || err.response?.data?.message || err.message || "Failed to process customer.";
-      setErrorMessage(apiErr);
-    } finally {
-      setSubmitLoading(false);
+  // Handle edit initializations
+  useEffect(() => {
+    if (selectedCustomer) {
+      resetEdit({
+        name: selectedCustomer.name,
+        email: selectedCustomer.email,
+        phone: selectedCustomer.phone,
+        address: selectedCustomer.address,
+      });
+    }
+  }, [selectedCustomer, resetEdit]);
+
+  // Submit new customer handlers
+  const onAddSubmit = async (data: CustomerFormInput) => {
+    const success = await createCustomer(data);
+    if (success) {
+      resetAdd();
+      setIsAddOpen(false);
     }
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!deletingCustomer || deletingCustomer.id === undefined) return;
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    try {
-      await customerAPI.deleteCustomer(deletingCustomer.id);
-      setSuccessMessage(`Customer "${deletingCustomer.name}" removed successfully.`);
-      setDeletingCustomer(null);
-      fetchCustomers(searchEmail);
-    } catch (err: any) {
-      console.error(err);
-      const apiErr = err.response?.data?.detail || err.response?.data?.message || err.message || "Failed to delete customer.";
-      setErrorMessage(apiErr);
-      setDeletingCustomer(null);
+  // Submit updated customer specs
+  const onEditSubmit = async (data: CustomerFormInput) => {
+    if (!selectedCustomer) return;
+    const success = await updateCustomer(selectedCustomer.id, data);
+    if (success) {
+      setIsEditOpen(false);
+      setSelectedCustomer(null);
     }
   };
+
+  // Confirm delete customer
+  const onDeleteConfirm = async () => {
+    if (!selectedCustomer) return;
+    const success = await deleteCustomer(selectedCustomer.id);
+    if (success) {
+      setIsDeleteOpen(false);
+      setSelectedCustomer(null);
+    }
+  };
+
+  // Pagination offsets
+  const totalPages = Math.ceil(customers.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentCustomers = customers.slice(indexOfFirstItem, indexOfLastItem);
 
   return (
-    <div className="container py-4" id="customers-root">
-      {/* Feedback Messages */}
-      {successMessage && (
-        <div className="alert alert-success alert-dismissible fade show border-0 shadow-sm d-flex justify-content-between align-items-center mb-4" role="alert" id="customer-alert-success">
-          <div>🎉 {successMessage}</div>
-          <button type="button" className="btn-close shadow-none" onClick={() => setSuccessMessage(null)} aria-label="Close" />
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="alert alert-danger alert-dismissible fade show border-0 shadow-sm d-flex justify-content-between align-items-center mb-4" role="alert" id="customer-alert-error">
-          <div className="d-flex align-items-center gap-2">
-            <AlertCircle size={20} className="text-danger flex-shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-          <button type="button" className="btn-close shadow-none" onClick={() => setErrorMessage(null)} aria-label="Close" />
-        </div>
-      )}
-
-      {/* Page Header */}
-      <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+    <div className="space-y-6">
+      {/* Header section with count */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="fw-bold text-dark font-sans tracking-tight mb-1">👥 Customer Accounts</h2>
-          <p className="text-secondary mb-0">Record customer profiles, modify physical addresses, lookup emails, and delete records cleanly.</p>
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Enterprise Client Database</h2>
+          <p className="text-sm text-slate-500 mt-1">Manage corporate clients, addresses, and CRM accounts.</p>
         </div>
-        <div>
-          <button
-            onClick={() => fetchCustomers(searchEmail)}
-            className="btn btn-outline-secondary d-flex align-items-center gap-2"
-            disabled={isLoading}
-            id="btn-customers-force-refresh"
-          >
-            <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
-            <span>Reload Accounts</span>
-          </button>
-        </div>
+        <button
+          id="btn-add-customer"
+          onClick={() => {
+            resetAdd();
+            setIsAddOpen(true);
+          }}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-xs hover:shadow-md transition-all cursor-pointer self-start sm:self-auto"
+        >
+          <Plus className="w-4 h-4" />
+          Add Customer
+        </button>
       </div>
 
-      <div className="row g-4">
-        {/* LEFT COLUMN: CUSTOMER FORM PANEL */}
-        <div className="col-lg-4 col-12 order-lg-2">
-          <CustomerForm
-            customerToEdit={editingCustomer}
-            onSubmit={handleCreateOrUpdate}
-            onCancel={() => setEditingCustomer(null)}
-            isLoading={submitLoading}
+      {/* Filter and search box panel */}
+      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-3xs">
+        <div className="relative w-full sm:w-80">
+          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+            <Search className="w-4 h-4" />
+          </span>
+          <input
+            id="customer-email-search-input"
+            type="text"
+            placeholder="Search explicitly by email address..."
+            value={searchEmail}
+            onChange={(e) => {
+              setSearchEmail(e.target.value);
+              setCurrentPage(1); // Reset page numbers
+            }}
+            className="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-700"
           />
         </div>
 
-        {/* RIGHT COLUMN: SEARCH FILTER AND CUSTOMER RECORDS LIST */}
-        <div className="col-lg-8 col-12 order-lg-1">
-          <div className="card shadow-sm border-0 bg-white">
-            <div className="card-header bg-white py-3 border-bottom d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between">
-              <h5 className="card-title mb-0 fw-bold d-flex align-items-center gap-2">
-                <Users size={18} className="text-primary" />
-                <span>Active Customer Accounts</span>
-              </h5>
-              <div className="input-group" style={{ maxWidth: "320px" }}>
-                <span className="input-group-text bg-white border-end-0 text-muted">
-                  <Mail size={16} />
-                </span>
-                <input
-                  type="text"
-                  className="form-control border-start-0 ps-0 text-sm"
-                  placeholder="Lookup exact email address..."
-                  value={searchEmail}
-                  onChange={(e) => setSearchEmail(e.target.value)}
-                  id="search-customers-field"
-                />
-              </div>
-            </div>
-
-            <div className="card-body p-0">
-              {isLoading && customers.length === 0 ? (
-                <div className="text-center py-5">
-                  <div className="spinner-border text-primary" role="status" />
-                  <p className="text-muted mt-2 mb-0">Querying directory databases...</p>
-                </div>
-              ) : customers.length === 0 ? (
-                <div className="text-center py-5">
-                  <Users size={48} className="text-secondary opacity-50 mb-3" />
-                  <h6 className="fw-bold">No Accounts Found</h6>
-                  <p className="text-muted small mb-0">
-                    {searchEmail ? "No customers registered with that email filter." : "Click the panel on the side to create user accounts and directories."}
-                  </p>
-                </div>
-              ) : (
-                <div className="table-responsive">
-                  <table className="table table-hover align-middle mb-0" id="customers-table">
-                    <thead className="table-light text-uppercase font-sans font-medium text-xs tracking-wider">
-                      <tr>
-                        <th className="p-3" style={{ width: "8%" }}>ID</th>
-                        <th className="p-3">Customer Profile</th>
-                        <th className="p-3">Contact</th>
-                        <th className="p-3">Address</th>
-                        <th className="p-3 text-center" style={{ width: "15%" }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {customers.map((c) => (
-                        <tr key={c.id} id={`customer-row-${c.id}`} className={editingCustomer?.id === c.id ? "table-primary-subtle" : ""}>
-                          <td className="p-3 font-monospace fw-semibold text-secondary">
-                            #{c.id}
-                          </td>
-                          <td className="p-3">
-                            <div className="fw-bold text-dark">{c.name}</div>
-                          </td>
-                          <td className="p-3">
-                            <div className="text-primary fw-medium font-monospace small mb-1">{c.email}</div>
-                            <div className="text-secondary font-monospace text-xs">{c.phone}</div>
-                          </td>
-                          <td className="p-3 text-secondary small">
-                            <div className="text-truncate" style={{ maxWidth: "200px" }} title={c.address}>
-                              {c.address || <em className="text-muted">No address provided</em>}
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <div className="d-flex align-items-center justify-content-center gap-1">
-                              <button
-                                className="btn btn-outline-secondary border-0 p-1"
-                                onClick={() => setEditingCustomer(c)}
-                                title="Edit profile entries"
-                                id={`btn-edit-cust-${c.id}`}
-                              >
-                                <Edit size={16} />
-                              </button>
-                              <button
-                                className="btn btn-outline-danger border-0 p-1"
-                                onClick={() => setDeletingCustomer(c)}
-                                title="Delete profile permanently"
-                                id={`btn-delete-cust-${c.id}`}
-                              >
-                                <Trash size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="card-footer bg-white border-top py-3 text-secondary small">
-              Registry: {customers.length} business accounts registered
-            </div>
-          </div>
+        <div className="text-xs text-slate-400 font-medium whitespace-nowrap self-stretch sm:self-auto flex items-center justify-end">
+          Total: {customers.length} business representatives
         </div>
       </div>
 
-      {/* DELETE CUSTOMER CONFIRMATION POPUP DIALOG */}
-      {deletingCustomer && (
-        <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: "rgba(0,0,0,0.5)" }} role="dialog" id="customer-delete-confirmation">
-          <div className="modal-dialog modal-dialog-centered" role="document">
-            <div className="modal-content border-0 shadow-lg">
-              <div className="modal-header bg-danger text-white py-3">
-                <h5 className="modal-title fw-bold">⚠️ Delete Customer Profile</h5>
+      {/* Main Table Screen */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-2xs overflow-hidden">
+        {loading && customers.length === 0 ? (
+          <div className="py-24 text-center flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            <p className="text-sm font-medium text-slate-400">Loading partners database records...</p>
+          </div>
+        ) : customers.length === 0 ? (
+          <div id="customers-empty-state" className="py-20 text-center flex flex-col items-center max-w-sm mx-auto">
+            <div className="w-14 h-14 bg-indigo-50 flex items-center justify-center rounded-2xl text-indigo-500 mb-4">
+              <Users className="w-7 h-7" />
+            </div>
+            <h3 className="text-sm font-bold text-slate-800">No CRM Customers found</h3>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              No matching client addresses are logged yet. Get started by entering your first customer coordinate profile!
+            </p>
+            <button
+              onClick={() => setIsAddOpen(true)}
+              className="mt-6 px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+            >
+              Add Business Partner
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-100 text-slate-400 font-semibold tracking-wider text-xs">
+                  <th className="px-6 py-4">ID Coordinates</th>
+                  <th className="px-6 py-4">Client Representative Name</th>
+                  <th className="px-6 py-4">Email Coordinates</th>
+                  <th className="px-6 py-4">Corporate Telephone</th>
+                  <th className="px-6 py-4">Headquarters Address</th>
+                  <th className="px-6 py-4 text-right pr-8">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 font-medium text-xs text-slate-700">
+                {currentCustomers.map((c) => (
+                  <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 font-mono text-slate-400 text-[11px]">#CL-{c.id}</td>
+                    <td id={`customer-name-${c.id}`} className="px-6 py-4">
+                      <div className="font-bold text-slate-800 text-sm">{c.name}</div>
+                    </td>
+                    <td id={`customer-email-${c.id}`} className="px-6 py-4">
+                      <div className="flex items-center gap-1.5 text-slate-600 hover:text-indigo-600 text-[11px] font-mono">
+                        <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{c.email}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-1.5 text-slate-600 text-[11px]">
+                        <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{c.phone}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-500 font-normal">
+                      <div className="flex items-center gap-1.5 text-[11px] max-w-xs truncate">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{c.address}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right pr-8">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Edit Action Button */}
+                        <button
+                          id={`btn-edit-customer-${c.id}`}
+                          onClick={() => {
+                            setSelectedCustomer(c);
+                            setIsEditOpen(true);
+                          }}
+                          className="p-1.5 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-all rounded-lg cursor-pointer"
+                          title="Modify Partner coordinates"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        {/* Delete Action Button */}
+                        <button
+                          id={`btn-delete-customer-${c.id}`}
+                          onClick={() => {
+                            setSelectedCustomer(c);
+                            setIsDeleteOpen(true);
+                          }}
+                          className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-all rounded-lg cursor-pointer"
+                          title="Archive Customer Profile"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination indicator pane */}
+        {totalPages > 1 && (
+          <div className="border-t border-slate-100 px-6 py-4.5 flex items-center justify-between bg-white text-xs">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3.5 py-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 font-semibold cursor-pointer disabled:opacity-50 disabled:pointer-events-none transition-all"
+            >
+              Previous
+            </button>
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, index) => (
                 <button
-                  type="button"
-                  className="btn-close btn-close-white shadow-none"
-                  onClick={() => setDeletingCustomer(null)}
-                  aria-label="Close"
+                  key={index + 1}
+                  onClick={() => setCurrentPage(index + 1)}
+                  className={`w-8 h-8 rounded-lg font-bold transition-all cursor-pointer ${
+                    currentPage === index + 1
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 hover:bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  {index + 1}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3.5 py-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 font-semibold cursor-pointer disabled:opacity-50 disabled:pointer-events-none transition-all"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* MODAL: ADD CUSTOMER */}
+      {isAddOpen && (
+        <div id="add-customer-modal" className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Plus className="w-4 h-4 text-indigo-600" />
+                Register New Customer Profile
+              </h3>
+              <button onClick={() => setIsAddOpen(false)} className="p-1 hover:bg-slate-50 rounded-lg text-slate-400 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitAdd(onAddSubmit)} className="p-6 space-y-4 text-xs font-semibold">
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Representative Corporate Name *</label>
+                <input
+                  id="form-add-customer-name"
+                  type="text"
+                  placeholder="e.g. Manish Kumar"
+                  {...registerAdd('name', { required: 'Customer full name is required' })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
                 />
+                {errorsAdd.name && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsAdd.name.message}</p>}
               </div>
-              <div className="modal-body p-4">
-                <p className="mb-2">Are you sure you want to permanently delete the following customer profile?</p>
-                <div className="p-3 bg-light rounded font-monospace text-sm mb-3 border">
-                  <strong>Name:</strong> {deletingCustomer.name} <br />
-                  <strong>Email:</strong> {deletingCustomer.email} <br />
-                  <strong>Phone:</strong> {deletingCustomer.phone}
-                </div>
-                <p className="text-secondary small mb-0">Deletes are immediate. Note that deleting customers might orphan historical sales orders registered under this client profile.</p>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Email Address Address *</label>
+                <input
+                  id="form-add-customer-email"
+                  type="email"
+                  placeholder="e.g. manish@gmail.com"
+                  {...registerAdd('email', {
+                    required: 'Email address is required',
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: 'Invalid email address syntax'
+                    }
+                  })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsAdd.email && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsAdd.email.message}</p>}
               </div>
-              <div className="modal-footer bg-light py-3 border-top gap-2">
+
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Corporate Phone Number *</label>
+                <input
+                  id="form-add-customer-phone"
+                  type="text"
+                  placeholder="e.g. 9876543210"
+                  {...registerAdd('phone', {
+                    required: 'Phone number is required',
+                    minLength: { value: 10, message: 'Minimum 10 digits required' }
+                  })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsAdd.phone && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsAdd.phone.message}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Headquarters Address Location *</label>
+                <textarea
+                  id="form-add-customer-address"
+                  rows={2.5}
+                  placeholder="e.g. Hyderabad, India"
+                  {...registerAdd('address', { required: 'Location coordinate is required' })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsAdd.address && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsAdd.address.message}</p>}
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 flex-row">
                 <button
                   type="button"
-                  className="btn btn-light border"
-                  onClick={() => setDeletingCustomer(null)}
-                  id="btn-cancel-cust-delete"
+                  onClick={() => setIsAddOpen(false)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold cursor-pointer transition-colors"
                 >
-                  Keep Account
+                  Cancel
                 </button>
                 <button
-                  type="button"
-                  className="btn btn-danger px-4"
-                  onClick={handleDeleteConfirm}
-                  id="btn-confirm-cust-delete"
+                  id="btn-submit-add-customer"
+                  type="submit"
+                  disabled={isSubmittingAdd}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold cursor-pointer shadow-xs hover:shadow-md transition-all flex items-center gap-2"
                 >
-                  Permanently Delete
+                  {isSubmittingAdd && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Register Account
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT CUSTOMER */}
+      {isEditOpen && selectedCustomer && (
+        <div id="edit-customer-modal" className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-indigo-500 animate-pulse" />
+                Modify Profile: CL-{selectedCustomer.id}
+              </h3>
+              <button onClick={() => {
+                setIsEditOpen(false);
+                setSelectedCustomer(null);
+              }} className="p-1 hover:bg-slate-50 rounded-lg text-slate-400 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitEdit(onEditSubmit)} className="p-6 space-y-4 text-xs font-semibold">
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Representative Corporate Name *</label>
+                <input
+                  id="form-edit-customer-name"
+                  type="text"
+                  {...registerEdit('name', { required: 'Customer name is required' })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsEdit.name && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsEdit.name.message}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Email Address Coordinates *</label>
+                <input
+                  id="form-edit-customer-email"
+                  type="email"
+                  {...registerEdit('email', {
+                    required: 'Email address is required',
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: 'Invalid email address syntax'
+                    }
+                  })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsEdit.email && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsEdit.email.message}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Corporate Phone Number *</label>
+                <input
+                  id="form-edit-customer-phone"
+                  type="text"
+                  {...registerEdit('phone', {
+                    required: 'Phone number is required',
+                    minLength: { value: 10, message: 'Minimum 10 digits required' }
+                  })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsEdit.phone && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsEdit.phone.message}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-500">Headquarters Address Location *</label>
+                <textarea
+                  id="form-edit-customer-address"
+                  rows={2.5}
+                  {...registerEdit('address', { required: 'Location coordinate is required' })}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-lg bg-slate-50/50 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all text-slate-800"
+                />
+                {errorsEdit.address && <p className="text-rose-500 text-[10px] font-bold mt-0.5">{errorsEdit.address.message}</p>}
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditOpen(false);
+                    setSelectedCustomer(null);
+                  }}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="btn-submit-edit-customer"
+                  type="submit"
+                  disabled={isSubmittingEdit}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold cursor-pointer shadow-xs hover:shadow-md transition-all flex items-center gap-2"
+                >
+                  {isSubmittingEdit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Save Metrics
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DELETE CONFIRMATION */}
+      {isDeleteOpen && selectedCustomer && (
+        <div id="delete-customer-modal" className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 text-center space-y-4">
+              <div className="w-12 h-12 bg-rose-50 text-rose-650 flex items-center justify-center rounded-2xl mx-auto mb-2">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-800">Confirm Customer Removal</h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                Confirm removing <span className="font-bold text-slate-700">"{selectedCustomer.name}"</span> from active business clients directory? Past orders registered to this ID will be detached.
+              </p>
+            </div>
+
+            <div className="px-6 py-4.5 bg-slate-50 flex items-center justify-end gap-3 flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeleteOpen(false);
+                  setSelectedCustomer(null);
+                }}
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-confirm-delete"
+                onClick={onDeleteConfirm}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                Deactivate Partner
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-}
+};
+
+export default Customers;
